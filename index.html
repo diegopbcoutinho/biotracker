@@ -472,6 +472,18 @@
     html.light .fi { color: var(--text); }
     html.light .goal-sel { color: var(--text-sub); }
 
+    /* ══ THEME TRANSITION — applied only during toggle to avoid breaking other animations ══ */
+    html.theme-transition,
+    html.theme-transition *,
+    html.theme-transition *::before,
+    html.theme-transition *::after {
+      transition:
+        background-color 0.45s ease,
+        border-color     0.45s ease,
+        color            0.45s ease,
+        box-shadow       0.45s ease !important;
+    }
+
     /* ══ THEME TOGGLE BTN ══ */
     .theme-btn {
       background: none; border: 1px solid var(--border); color: var(--text-muted);
@@ -2465,10 +2477,14 @@ function loadTheme() {
   if (btn) btn.textContent = light ? '☀️' : '🌙';
 }
 function toggleTheme() {
-  const isLight = document.documentElement.classList.toggle('light');
+  const html = document.documentElement;
+  html.classList.add('theme-transition');
+  const isLight = html.classList.toggle('light');
   DataLayer.setSetting('bt_theme', isLight ? 'light' : 'dark');
   const btn = document.getElementById('themeBtn');
   if (btn) btn.textContent = isLight ? '☀️' : '🌙';
+  // Remove transition class after animation completes so it doesn't interfere with other transitions
+  setTimeout(() => html.classList.remove('theme-transition'), 450);
 }
 
 // ══════════════════════════════════════════════════
