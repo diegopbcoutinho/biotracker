@@ -1076,7 +1076,7 @@ const AuthLayer = {
     location.reload();
   },
   onAuthChange(cb) {
-    _supa.auth.onAuthStateChange((_event, session) => cb(session));
+    _supa.auth.onAuthStateChange((event, session) => cb(event, session));
   }
 };
 
@@ -2518,9 +2518,11 @@ async function showApp(session) {
   }
 
   // 2. React to login / logout events
-  AuthLayer.onAuthChange(async (sess) => {
-    if (sess) await showApp(sess);
-    else showAuthScreen();
+  // Only handle SIGNED_IN and SIGNED_OUT — ignore TOKEN_REFRESHED to
+  // prevent loadFromCloud from overwriting unsync'd localStorage data
+  AuthLayer.onAuthChange(async (event, sess) => {
+    if (event === 'SIGNED_IN') await showApp(sess);
+    else if (event === 'SIGNED_OUT') showAuthScreen();
   });
 })();
 </script>
