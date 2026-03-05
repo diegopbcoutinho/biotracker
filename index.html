@@ -2765,14 +2765,14 @@
         </div>
       </div>
 
-      <div class="g3">
+      <div class="g3" style="grid-template-columns: repeat(4, 1fr) !important;">
         <div class="card cs">
           <div class="card-lbl">Streak</div>
           <div class="streak-inner">
             <div class="streak-ico">🌙</div>
             <div>
               <div class="streak-n" id="strSono">0</div>
-              <div class="streak-t">dias de sono registrado</div>
+              <div class="streak-t">dias de sono</div>
             </div>
           </div>
         </div>
@@ -2782,7 +2782,7 @@
             <div class="streak-ico">⚡</div>
             <div>
               <div class="streak-n" id="strTreino">0</div>
-              <div class="streak-t">dias de treino ativo</div>
+              <div class="streak-t">dias de treino</div>
             </div>
           </div>
         </div>
@@ -2792,7 +2792,17 @@
             <div class="streak-ico">🧬</div>
             <div>
               <div class="streak-n" id="strNutri">0</div>
-              <div class="streak-t">dias de nutrição registrada</div>
+              <div class="streak-t">dias de nutrição</div>
+            </div>
+          </div>
+        </div>
+        <div class="card cs" style="border-color:var(--cyan-dim)">
+          <div class="card-lbl" style="color:var(--cyan)">Neural Streak</div>
+          <div class="streak-inner">
+            <div class="streak-ico">✨</div>
+            <div>
+              <div class="streak-n" id="strLucid" style="color:var(--cyan)">0</div>
+              <div class="streak-t">sonhos lúcidos</div>
             </div>
           </div>
         </div>
@@ -2963,9 +2973,11 @@
           </div>
           <div class="fg">
             <label class="fl">Sonho Lúcido?</label>
-            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream"
-                  onchange="syncState('lucidDream','lucidSt','Sim','Não')"><span class="tgl-track"></span></label><span
-                class="tgl-lbl">Sonho lúcido</span><span class="tgl-state" id="lucidSt">Não</span></div>
+            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream" class="tgl-lbl">Sonho
+                lúcido</span><span class="tgl-state" id="lucidSt">Não</span>
+                <span style="margin-left:auto;font-size:10px;color:var(--cyan);cursor:pointer;text-decoration:underline"
+                  onclick="showLucidGuide()">Como fazer?</span>
+            </div>
           </div>
         </div>
 
@@ -2983,6 +2995,7 @@
                   onclick="selType(this)">Musculação</button><button class="type-btn"
                   onclick="selType(this)">Cardio</button><button class="type-btn"
                   onclick="selType(this)">Mobilidade</button><button class="type-btn"
+                  onclick="selType(this)">Yoga</button><button class="type-btn"
                   onclick="selType(this)">HIIT</button><button class="type-btn" onclick="selType(this)">Outro</button>
               </div>
             </div>
@@ -3343,6 +3356,8 @@
         const merged = { ...local };
         data.forEach(r => {
           if (r.data?.date) {
+            // If local has it but cloud is different, we prefer local if it's more complete?
+            // For now, let's just make sure we don't LOSE local data that isn't in cloud.
             if (!merged[r.data.date]) {
               merged[r.data.date] = r.data;
             }
@@ -3530,11 +3545,47 @@
       sleep(s) {
         if (!s || !s.hours) return 0;
         const h = s.hours, hs = h <= 8 ? (h / 8) * 100 : Math.max(0, (1 - (h - 8) / 2) * 100);
-        return Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
+        let score = Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
+        if (s.lucid) score = Math.min(100, score + 10);
+        return score;
       },
-      training(t) {
-        if (!t || !t.trained) return 0;
-        return Math.min(100, Math.round((t.intensity || 5) * 10 * 0.7 + Math.min((t.duration || 0) / 90, 1) * 100 * 0.3));
+      training(t, recScore) {
+        if (!t) return 0;
+        const type = (t.type || '').toLowerCase();
+        const isRecoveryType = ['mobilidade', 'yoga', 'alongamento', 'meditação'].includes(type);
+
+        // Ensure r is a valid number, fallback to 80 (Good) if not
+        const r = (typeof recScore !== 'number' || isNaN(recScore)) ? 80 : recScore;
+
+        // Scenario 1: No training registered
+        if (!t.trained) {
+          if (r < 40) return 100; // Perfect Strategic Rest
+          if (r < 70) return 85;  // Recommended Recovery
+          return 50; // Neutral rest
+        }
+
+        const intensity = t.intensity || 5;
+        const duration = t.duration || 0;
+
+        // Scenario 2: Active Recovery
+        if (isRecoveryType) {
+          if (r < 75) return 100; // Optimal choice for fatigue
+          return 90; // Excellent restorative work
+        }
+
+        // Scenario 3: Regular Training
+        let scoreBase = (intensity * 10 * 0.7) + (Math.min(duration / 90, 1) * 100 * 0.3);
+
+        if (r < 40) {
+          if (intensity >= 7) return Math.min(30, scoreBase * 0.3); // Severe Overtraining Penalty
+          return Math.min(60, scoreBase); // Very light is okay
+        }
+
+        if (r < 70) {
+          if (intensity >= 8) return Math.round(scoreBase * 0.75); // Penalty for pushing hard under fatigue
+        }
+
+        return Math.min(100, Math.max(0, Math.round(scoreBase)));
       },
       nutrition(n) {
         if (!n) return 0;
@@ -3543,45 +3594,98 @@
             (n.quality || 5) * 10 + (n.noUltraprocessed ? 100 : 0)) / 4));
       },
 
-      calc(e) {
-        const s = this.sleep(e.sono), t = this.training(e.treino), n = this.nutrition(e.nutri);
+      calc(e, data = null) {
+        const d = data || getData();
+        const rec = this.recovery(d, e.date, e) || { score: 80 };
+        const rs = (rec && typeof rec.score === 'number') ? rec.score : 80;
+        const s = this.sleep(e.sono), t = this.training(e.treino, rs), n = this.nutrition(e.nutri);
         const w = this.WEIGHTS[DataLayer.getSetting('bt_goal', 'performance')] || this.WEIGHTS.performance;
         return {
-          sono: s, treino: t, nutri: n,
-          overall: Math.min(100, Math.round(s * w.sleep + t * w.training + n * w.nutrition))
+          sono: s || 0, treino: t || (e.treino && !e.treino.trained ? 50 : 0), nutri: n || 0,
+          overall: Math.min(100, Math.round((s || 0) * w.sleep + (t || 0) * w.training + (n || 0) * w.nutrition))
         };
       },
 
-      recovery(data, today) {
-        const keys = Object.keys(data).sort(), idx = keys.indexOf(today), e = data[today];
+      recovery(data, today, currentEntry = null) {
+        const keys = Object.keys(data).sort(), idx = keys.indexOf(today);
+        const e = currentEntry || data[today];
         if (!e) return {
           score: null, status: '—', color: 'var(--text-muted)',
           detail: 'Registre o sono de hoje para calcular a recuperação.'
         };
+
         const sleepH = e.sono?.hours || 0, sleepQ = e.sono?.quality || 5;
         let prevIntensity = 0;
-        if (idx > 0) { const p = data[keys[idx - 1]]; prevIntensity = p?.treino?.trained ? (p.treino.intensity || 5) : 0; }
+        let cumulativeLoad = 0;
+        let circadianBonus = 0;
+        let repairBonus = 0;
+
+        if (idx > 0) {
+          const p = data[keys[idx - 1]];
+          prevIntensity = p?.treino?.trained ? (p.treino.intensity || 5) : 0;
+
+          // Nutritional Repair Bonus from yesterday
+          if (p.nutri && p.nutri.protein >= 120 && p.nutri.hydration >= 3) repairBonus = 5;
+        }
+
+        // Multi-day Fatigue (Last 7 days load)
+        let entriesAnalyzed = 0;
+        for (let i = idx - 1; i >= Math.max(0, idx - 7); i--) {
+          const en = data[keys[i]];
+          if (en?.treino?.trained) {
+            cumulativeLoad += (en.treino.intensity || 0) * (en.treino.duration || 0);
+          }
+          entriesAnalyzed++;
+        }
+
+        // Circadian Consistency (Last 3 days)
+        if (idx >= 3) {
+          const last3 = keys.slice(idx - 3, idx).map(k => data[k]);
+          const bedtimes = last3.map(en => en.sono?.bedtime).filter(Boolean);
+          if (bedtimes.length === 3) {
+            const variances = bedtimes.map(bt => {
+              const [h, m] = bt.split(':').map(Number);
+              return h * 60 + m;
+            });
+            const avg = variances.reduce((a, b) => a + b) / 3;
+            const isConsistent = variances.every(v => Math.abs(v - avg) < 45); // 45min variance
+            if (isConsistent) circadianBonus = 5;
+          }
+        }
+
         let consecutiveHigh = 0;
         for (let i = idx - 1; i >= Math.max(0, idx - 4); i--) {
           const en = data[keys[i]];
           if (en?.treino?.trained && (en.treino.intensity || 0) >= 7) consecutiveHigh++; else break;
         }
+
         let score = 50;
         if (sleepH >= 8) score += 25;
         else if (sleepH >= 7) score += 15;
         else if (sleepH >= 6) score += 5;
         else if (sleepH > 0) score -= 15;
+
         score += (sleepQ - 5) * 4 - prevIntensity * 2 - consecutiveHigh * 8;
+
+        // CNS Load adjustment (Simplified)
+        if (cumulativeLoad > 2000) score -= 10; // High frequency intensive load
+
+        if (e.sono?.lucid) score += 5; // Neuro-Recovery Bonus
         score = Math.min(100, Math.max(0, Math.round(score)));
+
         const lon = DataLayer.getSetting('bt_goal', 'performance') === 'longevity';
         const tHi = lon ? 75 : 70, tMid = lon ? 50 : 40;
         const color = score >= tHi ? 'var(--green)' : score >= tMid ? 'var(--yellow)' : 'var(--red)';
         const status = score >= tHi ? 'Recuperado' : score >= tMid ? 'Fadiga Moderada' : 'Overreached';
+
         const parts = [
-          sleepH > 0 ? `Sono ${sleepH}h · Qualidade ${sleepQ}/10` : 'Sono não registrado hoje',
-          prevIntensity > 0 ? `Intensidade de ontem: ${prevIntensity}/10` : 'Descanso ontem',
-          ...(consecutiveHigh > 0 ? [`${consecutiveHigh} dia(s) consecutivo(s) de alta intensidade`] : [])
-        ];
+          sleepH > 0 ? `Sono ${sleepH}h` : 'Sem sono',
+          circadianBonus > 0 ? 'Ritmo Circadiano ✓' : '',
+          repairBonus > 0 ? 'Reparo Nutricional ✓' : '',
+          e.sono?.lucid ? 'Neuro-Recuperação (Lúcido) ✓' : '',
+          cumulativeLoad > 2000 ? 'Carga SNC Alta ⚠' : ''
+        ].filter(Boolean);
+
         return { score, status, color, detail: parts.join(' · ') };
       }
     };
@@ -3663,10 +3767,18 @@
         }
       };
     }
-    function updatePreview() { const e = buildEntry(), sc = scores(e); document.getElementById('prevSono').textContent = sc.sono; document.getElementById('prevTreino').textContent = sc.treino; document.getElementById('prevNutri').textContent = sc.nutri; document.getElementById('prevGeral').textContent = sc.overall; }
+    function updatePreview() {
+      try {
+        const data = getData(), e = buildEntry(), sc = Scoring.calc(e, data);
+        if (document.getElementById('prevSono')) document.getElementById('prevSono').textContent = sc.sono;
+        if (document.getElementById('prevTreino')) document.getElementById('prevTreino').textContent = sc.treino;
+        if (document.getElementById('prevNutri')) document.getElementById('prevNutri').textContent = sc.nutri;
+        if (document.getElementById('prevGeral')) document.getElementById('prevGeral').textContent = sc.overall;
+      } catch (err) { console.error('Preview Error:', err); }
+    }
     function saveLog() {
       const data = getData(), entry = buildEntry();
-      entry.scores = scores(entry);
+      entry.scores = Scoring.calc(entry, data);
       data[entry.date] = entry;
       saveData(data);
       showToast('Registrado ✓');
@@ -3717,13 +3829,26 @@
       document.getElementById('hdrDate').textContent = '// ' + new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
       if (e) {
-        const sc = scores(e); // always recalc with current goal weights
+        const sc = Scoring.calc(e, data); // always recalc with current goal weights
         document.getElementById('ovNum').textContent = sc.overall;
         document.getElementById('ovFill').style.width = sc.overall + '%';
         document.getElementById('ovFill').style.background = sc.overall >= 70 ? 'linear-gradient(90deg,#16a34a,#22c55e)' : sc.overall >= 40 ? 'linear-gradient(90deg,#a16207,#ca8a04)' : 'linear-gradient(90deg,#b91c1c,#ef4444)';
-        document.getElementById('ovDesc').textContent = `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
-        document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados'; document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10${e.sono.lucid ? ' · Lúcido ✓' : ''}` : '—';
-        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : 'Sem treino'; document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : '—';
+
+        const isRestReward = !e.treino?.trained && sc.treino >= 80;
+        document.getElementById('ovDesc').textContent = isRestReward ? `Recuperação Estratégica 🔥` : `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
+
+        document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados';
+        const cardSono = document.getElementById('scSono').closest('.card');
+        if (e.sono?.lucid) {
+          document.getElementById('metaSono').innerHTML = `Qualidade ${e.sono.quality}/10 · <span style="color:var(--cyan);font-weight:700">Lúcido ✓</span>`;
+          cardSono.style.boxShadow = '0 0 20px var(--cyan-dim)';
+          cardSono.style.borderColor = 'var(--cyan)';
+        } else {
+          document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10` : '—';
+          cardSono.style.boxShadow = '';
+          cardSono.style.borderColor = '';
+        }
+        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Inteligente' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Bônus de Recuperação' : '—');
         document.getElementById('scNutri').textContent = sc.nutri; document.getElementById('pNutri').style.width = sc.nutri + '%'; document.getElementById('subNutri').textContent = e.nutri ? `${e.nutri.protein}g prot · ${e.nutri.hydration}L` : '—'; document.getElementById('metaNutri').textContent = e.nutri ? `Qualidade ${e.nutri.quality}/10${e.nutri.noUltraprocessed ? ' · Sem ultraproc. ✓' : ''}` : '—';
       } else {
         document.getElementById('ovNum').textContent = '—'; document.getElementById('ovFill').style.width = '0%'; document.getElementById('ovDesc').textContent = 'Nenhum dado registrado hoje';
@@ -3789,11 +3914,29 @@
       document.getElementById('macroFoodCount').textContent = `${log.length} item(s)`;
       document.getElementById('macroFoodList').textContent = log.map(f => `${f.name} (${f.qty}g)`).join(' · ');
     }
-    function updateStreaks(data) { function streak(fn) { let c = 0, d = new Date(); for (let i = 0; i < 365; i++) { const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; if (data[k] && fn(data[k])) c++; else break; d.setDate(d.getDate() - 1); } return c; } document.getElementById('strSono').textContent = streak(e => e.sono && e.sono.hours > 0); document.getElementById('strTreino').textContent = streak(e => e.treino && e.treino.trained); document.getElementById('strNutri').textContent = streak(e => e.nutri && (e.nutri.protein > 0 || e.nutri.hydration > 0)); }
+    function updateStreaks(data) {
+      function streak(fn) {
+        let c = 0, d = new Date();
+        for (let i = 0; i < 365; i++) {
+          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (data[k] && fn(data[k])) c++;
+          else break;
+          d.setDate(d.getDate() - 1);
+        }
+        return c;
+      }
+      function total(fn) {
+        return Object.values(data).filter(fn).length;
+      }
+      document.getElementById('strSono').textContent = streak(e => e.sono && e.sono.hours > 0);
+      document.getElementById('strTreino').textContent = streak(e => e.treino && e.treino.trained);
+      document.getElementById('strNutri').textContent = streak(e => e.nutri && (e.nutri.protein > 0 || e.nutri.hydration > 0));
+      document.getElementById('strLucid').textContent = total(e => e.sono && e.sono.lucid);
+    }
     function renderHeatmap(data) { const g = document.getElementById('hmGrid'); g.innerHTML = ''; const today = new Date(); for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(today.getDate() - i); const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; const c = document.createElement('div'); c.className = 'hm-cell'; const e = data[k]; if (e && e.scores) { const sc = e.scores.overall; c.classList.add(sc >= 70 ? 'hm-hi' : sc >= 40 ? 'hm-mid' : 'hm-lo'); c.title = `${k}: ${sc} pts`; } else { c.title = `${k}: sem dados`; } g.appendChild(c); } }
 
     // ── HISTORY ──
-    function renderHistory() { const data = getData(), keys = Object.keys(data).sort().reverse(), tbody = document.getElementById('histBody'), empty = document.getElementById('emptyHist'); tbody.innerHTML = ''; if (!keys.length) { empty.style.display = 'block'; return; } empty.style.display = 'none'; keys.forEach(k => { const e = data[k], sc = e.scores || scores(e), bc = sc.overall >= 70 ? 'b-hi' : sc.overall >= 40 ? 'b-mid' : 'b-lo', date = new Date(k + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }), sonoTxt = e.sono && e.sono.hours ? `${e.sono.hours}h · Q${e.sono.quality}` : '—', treinoTxt = e.treino && e.treino.trained ? `${e.treino.type || '?'} ${e.treino.duration}min` : 'Não treinou', nutriTxt = e.nutri ? `${e.nutri.protein}g · ${e.nutri.hydration}L` : '—'; const tr = document.createElement('tr'); tr.innerHTML = `<td>${date}</td><td>${sonoTxt}</td><td>${treinoTxt}</td><td>${nutriTxt}</td><td><span class="badge ${bc}">${sc.overall}</span></td><td><button class="del-btn" onclick="delEntry('${k}')">excluir</button></td>`; tbody.appendChild(tr); }); }
+    function renderHistory() { const data = getData(), keys = Object.keys(data).sort().reverse(), tbody = document.getElementById('histBody'), empty = document.getElementById('emptyHist'); tbody.innerHTML = ''; if (!keys.length) { empty.style.display = 'block'; return; } empty.style.display = 'none'; keys.forEach(k => { const e = data[k], sc = e.scores || Scoring.calc(e, data), bc = sc.overall >= 70 ? 'b-hi' : sc.overall >= 40 ? 'b-mid' : 'b-lo', date = new Date(k + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }), sonoTxt = e.sono && e.sono.hours ? `${e.sono.hours}h · Q${e.sono.quality}` : '—', treinoTxt = e.treino && e.treino.trained ? `${e.treino.type || '?'} ${e.treino.duration}min` : 'Não treinou', nutriTxt = e.nutri ? `${e.nutri.protein}g · ${e.nutri.hydration}L` : '—'; const tr = document.createElement('tr'); tr.innerHTML = `<td>${date}</td><td>${sonoTxt}</td><td>${treinoTxt}</td><td>${nutriTxt}</td><td><span class="badge ${bc}">${sc.overall}</span></td><td><button class="del-btn" onclick="delEntry('${k}')">excluir</button></td>`; tbody.appendChild(tr); }); }
     function delEntry(k) { if (!confirm(`Excluir registro de ${k}?`)) return; const data = getData(); delete data[k]; saveData(data); renderHistory(); updateDashboard(); }
 
     ['bedtime', 'waketime', 'protein', 'hydration', 'wkDuration'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', updatePreview); });
@@ -4839,6 +4982,55 @@ Então gere um programa COMPLETO com estas seções em markdown:
       document.getElementById('planModal').classList.add('open');
     }
     function closePlanModal() { document.getElementById('planModal').classList.remove('open'); modalPlanData = null; }
+
+    function showLucidGuide() {
+      const modal = document.getElementById('planModal');
+      const title = document.getElementById('modalTitle');
+      const badge = document.getElementById('modalBadge');
+      const date = document.getElementById('modalDate');
+      const content = document.getElementById('modalContent');
+      const actions = modal.querySelector('.modal-actions');
+
+      badge.innerHTML = '<span class="plan-badge-n" style="background:var(--cyan-dim);color:var(--cyan);border-color:var(--cyan)">Neural Guide</span>';
+      title.textContent = 'Guia de Sonhos Lúcidos';
+      date.textContent = 'Biohacking Mindset';
+
+      content.innerHTML = `
+        <div style="font-family:var(--font-m); font-size:13px; line-height:1.6">
+          <p style="margin-bottom:15px; color:var(--cyan)"><b>O que é?</b> Estar consciente de que você está sonhando enquanto o sonho acontece. Isso permite "acordar" dentro do sonho e até controlá-lo.</p>
+          
+          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--cyan); padding-left:10px">Técnicas Essenciais</h4>
+          <ul style="padding-left:20px; margin-bottom:15px">
+            <li style="margin-bottom:8px"><b>Reality Checks:</b> Durante o dia, pergunte-se: "Isso é um sonho?". Tente atravessar a mão na parede ou contar seus dedos.</li>
+            <li style="margin-bottom:8px"><b>Diário de Sonhos:</b> Escreva seus sonhos IMEDIATAMENTE ao acordar. Isso aumenta a lembrança e a consciência no ambiente onírico.</li>
+            <li style="margin-bottom:8px"><b>MILD (Indução Mnemônica):</b> Ao deitar, repita: "Eu vou saber que estou sonhando". Visualize seu próximo sonho.</li>
+            <li style="margin-bottom:8px"><b>WBTB (Acordar e Voltar):</b> Acorde após 5-6h de sono, fique acordado por 15-30min focado em lucidez, e volte a dormir.</li>
+          </ul>
+
+          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--purple); padding-left:10px">O Impacto no BioTracker</h4>
+          <p style="margin-bottom:15px">Conseguir um sonho lúcido é um sinal de alta qualidade de sono REM e neuroplasticidade. No BioTracker:</p>
+          <ul style="padding-left:20px">
+            <li><b>Bonus de Sono:</b> +10 pontos no score de sono.</li>
+            <li><b>Neuro-Recovery:</b> +5 pontos no score de recuperação.</li>
+          </ul>
+        </div>
+      `;
+
+      // Hide download buttons for this guide
+      document.getElementById('modalDlPDF').style.display = 'none';
+      document.getElementById('modalDlDOC').style.display = 'none';
+
+      modal.classList.add('open');
+
+      // Override close to restore buttons
+      const oldClose = window.closePlanModal;
+      window.closePlanModal = function () {
+        document.getElementById('modalDlPDF').style.display = 'inline-block';
+        document.getElementById('modalDlDOC').style.display = 'inline-block';
+        oldClose();
+        window.closePlanModal = oldClose;
+      };
+    }
     function downloadPDFFromModal() { if (modalPlanData) downloadPDF(null, modalPlanData); }
     function downloadDOCFromModal() { if (modalPlanData) downloadDOC(null, modalPlanData); }
 
