@@ -1,0 +1,92 @@
+# Manual do Usuário: BioTracker — Health OS
+
+Bem-vindo ao BioTracker, o seu sistema operacional de biohacking e saúde. Este manual irá guiá-lo pelas funcionalidades da aplicação, ajudando você a otimizar sua performance, longevidade e bem-estar.
+
+---
+
+## 1. Primeiros Passos
+
+### Autenticação
+Ao abrir o BioTracker, você verá a tela de acesso:
+- Criar Conta: Se for seu primeiro acesso, mude para a aba "Criar Conta", insira seu email e uma senha (mínimo de 6 caracteres).
+- Entrar: Insira suas credenciais cadastradas para acessar seus dados. Seus registros são salvos com segurança na nuvem (Supabase) e sincronizados entre dispositivos.
+
+### Definindo seu Objetivo
+No topo da página (Header), você encontrará o seletor de Objetivos. Escolher um objetivo altera como o seu Score Geral é calculado, dando pesos diferentes para Sono, Treino e Nutrição:
+- Performance: Foco em treino (45%) e recuperação rápida.
+- Longevidade: Prioriza a qualidade do sono (45%) e hábitos sustentáveis.
+- Fat Loss: Maior peso para nutrição (40%) e controle calórico.
+- Muscle Gain: Foco equilibrado entre treino (40%) e suporte nutricional.
+
+---
+
+## 2. Dashboard: Entendendo as Métricas
+
+O Dashboard é a sua central de comando. Aqui você visualiza o estado atual do seu corpo.
+
+### Score Geral de Hoje
+Um número de 0 a 100 que resume seu desempenho no dia atual, baseado no objetivo selecionado.
+
+### Recuperação (Recovery)
+Calculada automaticamente após o registro do sono. Ela indica se seu corpo está pronto para um treino intenso ou se precisa de descanso:
+- Verde: Totalmente recuperado.
+- Amarelo: Fadiga moderada - treine com cautela.
+- Vermelho: Overreached - priorize o descanso.
+
+### Regularidade Circadiana
+Mede a consistência dos seus horários de dormir e acordar nos últimos dias. Manter uma regularidade alta (acima de 80%) é vital para o equilíbrio hormonal.
+
+### Streaks e Heatmap
+- Streaks: Acompanhe quantos dias seguidos você mantém seus registros ativos.
+- Heatmap (Atividade): Uma visualização dos últimos 30 dias. Cores verdes indicam alta performance (Score >= 70).
+
+---
+
+## 3. Registrando seus Dados (Aba Registrar)
+
+Para obter insights precisos, você deve registrar seus dados diariamente.
+
+### Sono
+- Insira o horário que foi para a cama e o horário que acordou. O app calculará o total de horas.
+- Avalie a Qualidade do Sono de 1 a 10.
+- Marque se teve um Sonho Lúcido (um marcador importante de qualidade de fase REM).
+
+### Treino
+- Marque se treinou hoje para abrir os detalhes.
+- Selecione o Tipo de Treino (Musculação, Cardio, HIIT, etc.).
+- Defina a Duração e a Intensidade.
+- Use o campo Observações para anotar PRs (recordes pessoais) ou sensações específicas.
+
+### Nutrição e Hidratação
+- Log de Alimentos: Digite o nome do alimento (ex: "frango") e a quantidade em gramas. O app consultará um banco de dados interno para calcular Calorias, Proteínas, Carbos e Gorduras automaticamente.
+- Macros de Hoje: No Dashboard, você verá um resumo detalhado dos macronutrientes consumidos.
+- Jejum Intermitente: Registre se praticou jejum e o horário da quebra.
+- Qualidade e Ultraprocessados: Avalie a qualidade geral e marque se conseguiu evitar alimentos ultraprocessados.
+
+---
+
+## 4. Inteligência Artificial (NutricionistAI e Personal AI)
+
+O BioTracker utiliza modelos avançados de IA para gerar planos personalizados.
+
+### Configuração da API
+Antes de usar, na aba NutricionistAI, insira sua API Key (OpenAI ou Anthropic). A chave é salva localmente no seu navegador por segurança.
+
+### NutricionistAI
+Inicie um chat para discutir seus objetivos alimentares. A IA fará perguntas sobre sua rotina e, ao final, gerará um Plano Nutricional completo.
+- Você pode Salvar o Plano para consulta rápida no Dashboard.
+- Exportar o plano em PDF ou DOCX.
+
+### Personal AI
+Funciona de forma similar ao nutricionista, mas focado em Programas de Treino. Ele leva em conta seu nível de experiência, equipamentos disponíveis e lesões prévias.
+
+---
+
+## 5. Histórico e Gestão de Dados
+
+- Histórico (Aba Histórico): Veja todos os seus registros passados em uma tabela organizada. Você pode excluir registros incorretos aqui.
+- Apagar Dados: Se desejar recomeçar do zero, há um botão de "Apagar Todos os Dados" nas Configurações (Aba Dashboard).
+- Temas: Clique no ícone de sol/lua no Header para alternar entre o modo Escuro (Dark) e Claro (Light).
+
+---
+Dica de Biohacker: Tente registrar seus dados sempre no mesmo horário (ex: logo após acordar ou antes de dormir) para manter as métricas de regularidade precisas!

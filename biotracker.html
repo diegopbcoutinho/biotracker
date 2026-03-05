@@ -2983,6 +2983,7 @@
                   onclick="selType(this)">Musculação</button><button class="type-btn"
                   onclick="selType(this)">Cardio</button><button class="type-btn"
                   onclick="selType(this)">Mobilidade</button><button class="type-btn"
+                  onclick="selType(this)">Yoga</button><button class="type-btn"
                   onclick="selType(this)">HIIT</button><button class="type-btn" onclick="selType(this)">Outro</button>
               </div>
             </div>
@@ -3534,9 +3535,43 @@
         const h = s.hours, hs = h <= 8 ? (h / 8) * 100 : Math.max(0, (1 - (h - 8) / 2) * 100);
         return Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
       },
-      training(t) {
-        if (!t || !t.trained) return 0;
-        return Math.min(100, Math.round((t.intensity || 5) * 10 * 0.7 + Math.min((t.duration || 0) / 90, 1) * 100 * 0.3));
+      training(t, recScore = 80) {
+        if (!t) return 0;
+        const type = (t.type || '').toLowerCase();
+        const isRecoveryType = ['mobilidade', 'yoga', 'alongamento', 'meditação'].includes(type);
+
+        // Ensure recScore is a number even if null/0/NaN from preview
+        const r = (typeof recScore !== 'number' || isNaN(recScore) || recScore <= 0) ? 80 : recScore;
+
+        // Scenario 1: No training registered
+        if (!t.trained) {
+          if (r < 40) return 100; // Perfect Strategic Rest
+          if (r < 70) return 85;  // Recommended Recovery
+          return 50; // Neutral rest
+        }
+
+        const intensity = t.intensity || 5;
+        const duration = t.duration || 0;
+
+        // Scenario 2: Active Recovery
+        if (isRecoveryType) {
+          if (r < 75) return 100; // Optimal choice for fatigue
+          return 90; // Excellent restorative work
+        }
+
+        // Scenario 3: Regular Training
+        let scoreBase = (intensity * 10 * 0.7) + (Math.min(duration / 90, 1) * 100 * 0.3);
+
+        if (r < 40) {
+          if (intensity >= 7) return Math.min(30, scoreBase * 0.3); // Severe Overtraining Penalty
+          return Math.min(60, scoreBase); // Very light is okay
+        }
+
+        if (r < 70) {
+          if (intensity >= 8) return Math.round(scoreBase * 0.75); // Penalty for pushing hard under fatigue
+        }
+
+        return Math.min(100, Math.max(0, Math.round(scoreBase)));
       },
       nutrition(n) {
         if (!n) return 0;
@@ -3545,8 +3580,10 @@
             (n.quality || 5) * 10 + (n.noUltraprocessed ? 100 : 0)) / 4));
       },
 
-      calc(e) {
-        const s = this.sleep(e.sono), t = this.training(e.treino), n = this.nutrition(e.nutri);
+      calc(e, data = null) {
+        const d = data || getData();
+        const rec = this.recovery(d, e.date, e);
+        const s = this.sleep(e.sono), t = this.training(e.treino, rec.score), n = this.nutrition(e.nutri);
         const w = this.WEIGHTS[DataLayer.getSetting('bt_goal', 'performance')] || this.WEIGHTS.performance;
         return {
           sono: s, treino: t, nutri: n,
@@ -3554,36 +3591,85 @@
         };
       },
 
-      recovery(data, today) {
-        const keys = Object.keys(data).sort(), idx = keys.indexOf(today), e = data[today];
+      recovery(data, today, currentEntry = null) {
+        const keys = Object.keys(data).sort(), idx = keys.indexOf(today);
+        const e = currentEntry || data[today];
         if (!e) return {
           score: null, status: '—', color: 'var(--text-muted)',
           detail: 'Registre o sono de hoje para calcular a recuperação.'
         };
+
         const sleepH = e.sono?.hours || 0, sleepQ = e.sono?.quality || 5;
         let prevIntensity = 0;
-        if (idx > 0) { const p = data[keys[idx - 1]]; prevIntensity = p?.treino?.trained ? (p.treino.intensity || 5) : 0; }
+        let cumulativeLoad = 0;
+        let circadianBonus = 0;
+        let repairBonus = 0;
+
+        if (idx > 0) {
+          const p = data[keys[idx - 1]];
+          prevIntensity = p?.treino?.trained ? (p.treino.intensity || 5) : 0;
+
+          // Nutritional Repair Bonus from yesterday
+          if (p.nutri && p.nutri.protein >= 120 && p.nutri.hydration >= 3) repairBonus = 5;
+        }
+
+        // Multi-day Fatigue (Last 7 days load)
+        let entriesAnalyzed = 0;
+        for (let i = idx - 1; i >= Math.max(0, idx - 7); i--) {
+          const en = data[keys[i]];
+          if (en?.treino?.trained) {
+            cumulativeLoad += (en.treino.intensity || 0) * (en.treino.duration || 0);
+          }
+          entriesAnalyzed++;
+        }
+
+        // Circadian Consistency (Last 3 days)
+        if (idx >= 3) {
+          const last3 = keys.slice(idx - 3, idx).map(k => data[k]);
+          const bedtimes = last3.map(en => en.sono?.bedtime).filter(Boolean);
+          if (bedtimes.length === 3) {
+            const variances = bedtimes.map(bt => {
+              const [h, m] = bt.split(':').map(Number);
+              return h * 60 + m;
+            });
+            const avg = variances.reduce((a, b) => a + b) / 3;
+            const isConsistent = variances.every(v => Math.abs(v - avg) < 45); // 45min variance
+            if (isConsistent) circadianBonus = 5;
+          }
+        }
+
         let consecutiveHigh = 0;
         for (let i = idx - 1; i >= Math.max(0, idx - 4); i--) {
           const en = data[keys[i]];
           if (en?.treino?.trained && (en.treino.intensity || 0) >= 7) consecutiveHigh++; else break;
         }
+
         let score = 50;
         if (sleepH >= 8) score += 25;
         else if (sleepH >= 7) score += 15;
         else if (sleepH >= 6) score += 5;
         else if (sleepH > 0) score -= 15;
+
         score += (sleepQ - 5) * 4 - prevIntensity * 2 - consecutiveHigh * 8;
+
+        // CNS Load adjustment (Simplified)
+        if (cumulativeLoad > 2000) score -= 10; // High frequency intensive load
+
+        score += circadianBonus + repairBonus;
         score = Math.min(100, Math.max(0, Math.round(score)));
+
         const lon = DataLayer.getSetting('bt_goal', 'performance') === 'longevity';
         const tHi = lon ? 75 : 70, tMid = lon ? 50 : 40;
         const color = score >= tHi ? 'var(--green)' : score >= tMid ? 'var(--yellow)' : 'var(--red)';
         const status = score >= tHi ? 'Recuperado' : score >= tMid ? 'Fadiga Moderada' : 'Overreached';
+
         const parts = [
-          sleepH > 0 ? `Sono ${sleepH}h · Qualidade ${sleepQ}/10` : 'Sono não registrado hoje',
-          prevIntensity > 0 ? `Intensidade de ontem: ${prevIntensity}/10` : 'Descanso ontem',
-          ...(consecutiveHigh > 0 ? [`${consecutiveHigh} dia(s) consecutivo(s) de alta intensidade`] : [])
-        ];
+          sleepH > 0 ? `Sono ${sleepH}h` : 'Sem sono',
+          circadianBonus > 0 ? 'Ritmo Circadiano ✓' : '',
+          repairBonus > 0 ? 'Reparo Nutricional ✓' : '',
+          cumulativeLoad > 2000 ? 'Carga SNC Alta ⚠' : ''
+        ].filter(Boolean);
+
         return { score, status, color, detail: parts.join(' · ') };
       }
     };
@@ -3665,10 +3751,10 @@
         }
       };
     }
-    function updatePreview() { const e = buildEntry(), sc = scores(e); document.getElementById('prevSono').textContent = sc.sono; document.getElementById('prevTreino').textContent = sc.treino; document.getElementById('prevNutri').textContent = sc.nutri; document.getElementById('prevGeral').textContent = sc.overall; }
+    function updatePreview() { const data = getData(), e = buildEntry(), sc = Scoring.calc(e, data); document.getElementById('prevSono').textContent = sc.sono; document.getElementById('prevTreino').textContent = sc.treino; document.getElementById('prevNutri').textContent = sc.nutri; document.getElementById('prevGeral').textContent = sc.overall; }
     function saveLog() {
       const data = getData(), entry = buildEntry();
-      entry.scores = scores(entry);
+      entry.scores = Scoring.calc(entry, data);
       data[entry.date] = entry;
       saveData(data);
       showToast('Registrado ✓');
@@ -3719,13 +3805,16 @@
       document.getElementById('hdrDate').textContent = '// ' + new Date().toLocaleDateString('pt-BR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
       if (e) {
-        const sc = scores(e); // always recalc with current goal weights
+        const sc = Scoring.calc(e, data); // always recalc with current goal weights
         document.getElementById('ovNum').textContent = sc.overall;
         document.getElementById('ovFill').style.width = sc.overall + '%';
         document.getElementById('ovFill').style.background = sc.overall >= 70 ? 'linear-gradient(90deg,#16a34a,#22c55e)' : sc.overall >= 40 ? 'linear-gradient(90deg,#a16207,#ca8a04)' : 'linear-gradient(90deg,#b91c1c,#ef4444)';
-        document.getElementById('ovDesc').textContent = `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
+
+        const isRestReward = !e.treino?.trained && sc.treino >= 80;
+        document.getElementById('ovDesc').textContent = isRestReward ? `Recuperação Estratégica 🔥` : `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
+
         document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados'; document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10${e.sono.lucid ? ' · Lúcido ✓' : ''}` : '—';
-        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : 'Sem treino'; document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : '—';
+        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Inteligente' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Bônus de Recuperação' : '—');
         document.getElementById('scNutri').textContent = sc.nutri; document.getElementById('pNutri').style.width = sc.nutri + '%'; document.getElementById('subNutri').textContent = e.nutri ? `${e.nutri.protein}g prot · ${e.nutri.hydration}L` : '—'; document.getElementById('metaNutri').textContent = e.nutri ? `Qualidade ${e.nutri.quality}/10${e.nutri.noUltraprocessed ? ' · Sem ultraproc. ✓' : ''}` : '—';
       } else {
         document.getElementById('ovNum').textContent = '—'; document.getElementById('ovFill').style.width = '0%'; document.getElementById('ovDesc').textContent = 'Nenhum dado registrado hoje';
@@ -3795,7 +3884,7 @@
     function renderHeatmap(data) { const g = document.getElementById('hmGrid'); g.innerHTML = ''; const today = new Date(); for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(today.getDate() - i); const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; const c = document.createElement('div'); c.className = 'hm-cell'; const e = data[k]; if (e && e.scores) { const sc = e.scores.overall; c.classList.add(sc >= 70 ? 'hm-hi' : sc >= 40 ? 'hm-mid' : 'hm-lo'); c.title = `${k}: ${sc} pts`; } else { c.title = `${k}: sem dados`; } g.appendChild(c); } }
 
     // ── HISTORY ──
-    function renderHistory() { const data = getData(), keys = Object.keys(data).sort().reverse(), tbody = document.getElementById('histBody'), empty = document.getElementById('emptyHist'); tbody.innerHTML = ''; if (!keys.length) { empty.style.display = 'block'; return; } empty.style.display = 'none'; keys.forEach(k => { const e = data[k], sc = e.scores || scores(e), bc = sc.overall >= 70 ? 'b-hi' : sc.overall >= 40 ? 'b-mid' : 'b-lo', date = new Date(k + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }), sonoTxt = e.sono && e.sono.hours ? `${e.sono.hours}h · Q${e.sono.quality}` : '—', treinoTxt = e.treino && e.treino.trained ? `${e.treino.type || '?'} ${e.treino.duration}min` : 'Não treinou', nutriTxt = e.nutri ? `${e.nutri.protein}g · ${e.nutri.hydration}L` : '—'; const tr = document.createElement('tr'); tr.innerHTML = `<td>${date}</td><td>${sonoTxt}</td><td>${treinoTxt}</td><td>${nutriTxt}</td><td><span class="badge ${bc}">${sc.overall}</span></td><td><button class="del-btn" onclick="delEntry('${k}')">excluir</button></td>`; tbody.appendChild(tr); }); }
+    function renderHistory() { const data = getData(), keys = Object.keys(data).sort().reverse(), tbody = document.getElementById('histBody'), empty = document.getElementById('emptyHist'); tbody.innerHTML = ''; if (!keys.length) { empty.style.display = 'block'; return; } empty.style.display = 'none'; keys.forEach(k => { const e = data[k], sc = e.scores || Scoring.calc(e, data), bc = sc.overall >= 70 ? 'b-hi' : sc.overall >= 40 ? 'b-mid' : 'b-lo', date = new Date(k + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: '2-digit' }), sonoTxt = e.sono && e.sono.hours ? `${e.sono.hours}h · Q${e.sono.quality}` : '—', treinoTxt = e.treino && e.treino.trained ? `${e.treino.type || '?'} ${e.treino.duration}min` : 'Não treinou', nutriTxt = e.nutri ? `${e.nutri.protein}g · ${e.nutri.hydration}L` : '—'; const tr = document.createElement('tr'); tr.innerHTML = `<td>${date}</td><td>${sonoTxt}</td><td>${treinoTxt}</td><td>${nutriTxt}</td><td><span class="badge ${bc}">${sc.overall}</span></td><td><button class="del-btn" onclick="delEntry('${k}')">excluir</button></td>`; tbody.appendChild(tr); }); }
     function delEntry(k) { if (!confirm(`Excluir registro de ${k}?`)) return; const data = getData(); delete data[k]; saveData(data); renderHistory(); updateDashboard(); }
 
     ['bedtime', 'waketime', 'protein', 'hydration', 'wkDuration'].forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('input', updatePreview); });
