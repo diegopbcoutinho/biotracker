@@ -3268,6 +3268,8 @@
         const merged = { ...local };
         data.forEach(r => {
           if (r.data?.date) {
+            // If local has it but cloud is different, we prefer local if it's more complete?
+            // For now, let's just make sure we don't LOSE local data that isn't in cloud.
             if (!merged[r.data.date]) {
               merged[r.data.date] = r.data;
             }
