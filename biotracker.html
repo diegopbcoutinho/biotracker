@@ -2765,14 +2765,14 @@
         </div>
       </div>
 
-      <div class="g3">
+      <div class="g3" style="grid-template-columns: repeat(4, 1fr) !important;">
         <div class="card cs">
           <div class="card-lbl">Streak</div>
           <div class="streak-inner">
             <div class="streak-ico">🌙</div>
             <div>
               <div class="streak-n" id="strSono">0</div>
-              <div class="streak-t">dias de sono registrado</div>
+              <div class="streak-t">dias de sono</div>
             </div>
           </div>
         </div>
@@ -2782,7 +2782,7 @@
             <div class="streak-ico">⚡</div>
             <div>
               <div class="streak-n" id="strTreino">0</div>
-              <div class="streak-t">dias de treino ativo</div>
+              <div class="streak-t">dias de treino</div>
             </div>
           </div>
         </div>
@@ -2792,7 +2792,17 @@
             <div class="streak-ico">🧬</div>
             <div>
               <div class="streak-n" id="strNutri">0</div>
-              <div class="streak-t">dias de nutrição registrada</div>
+              <div class="streak-t">dias de nutrição</div>
+            </div>
+          </div>
+        </div>
+        <div class="card cs" style="border-color:var(--cyan-dim)">
+          <div class="card-lbl" style="color:var(--cyan)">Neural Streak</div>
+          <div class="streak-inner">
+            <div class="streak-ico">✨</div>
+            <div>
+              <div class="streak-n" id="strLucid" style="color:var(--cyan)">0</div>
+              <div class="streak-t">sonhos lúcidos</div>
             </div>
           </div>
         </div>
@@ -2963,9 +2973,11 @@
           </div>
           <div class="fg">
             <label class="fl">Sonho Lúcido?</label>
-            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream"
-                  onchange="syncState('lucidDream','lucidSt','Sim','Não')"><span class="tgl-track"></span></label><span
-                class="tgl-lbl">Sonho lúcido</span><span class="tgl-state" id="lucidSt">Não</span></div>
+            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream" class="tgl-lbl">Sonho
+                lúcido</span><span class="tgl-state" id="lucidSt">Não</span>
+                <span style="margin-left:auto;font-size:10px;color:var(--cyan);cursor:pointer;text-decoration:underline"
+                  onclick="showLucidGuide()">Como fazer?</span>
+            </div>
           </div>
         </div>
 
@@ -3533,7 +3545,9 @@
       sleep(s) {
         if (!s || !s.hours) return 0;
         const h = s.hours, hs = h <= 8 ? (h / 8) * 100 : Math.max(0, (1 - (h - 8) / 2) * 100);
-        return Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
+        let score = Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
+        if (s.lucid) score = Math.min(100, score + 10);
+        return score;
       },
       training(t, recScore) {
         if (!t) return 0;
@@ -3656,7 +3670,7 @@
         // CNS Load adjustment (Simplified)
         if (cumulativeLoad > 2000) score -= 10; // High frequency intensive load
 
-        score += circadianBonus + repairBonus;
+        if (e.sono?.lucid) score += 5; // Neuro-Recovery Bonus
         score = Math.min(100, Math.max(0, Math.round(score)));
 
         const lon = DataLayer.getSetting('bt_goal', 'performance') === 'longevity';
@@ -3668,6 +3682,7 @@
           sleepH > 0 ? `Sono ${sleepH}h` : 'Sem sono',
           circadianBonus > 0 ? 'Ritmo Circadiano ✓' : '',
           repairBonus > 0 ? 'Reparo Nutricional ✓' : '',
+          e.sono?.lucid ? 'Neuro-Recuperação (Lúcido) ✓' : '',
           cumulativeLoad > 2000 ? 'Carga SNC Alta ⚠' : ''
         ].filter(Boolean);
 
@@ -3822,7 +3837,17 @@
         const isRestReward = !e.treino?.trained && sc.treino >= 80;
         document.getElementById('ovDesc').textContent = isRestReward ? `Recuperação Estratégica 🔥` : `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
 
-        document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados'; document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10${e.sono.lucid ? ' · Lúcido ✓' : ''}` : '—';
+        document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados';
+        const cardSono = document.getElementById('scSono').closest('.card');
+        if (e.sono?.lucid) {
+          document.getElementById('metaSono').innerHTML = `Qualidade ${e.sono.quality}/10 · <span style="color:var(--cyan);font-weight:700">Lúcido ✓</span>`;
+          cardSono.style.boxShadow = '0 0 20px var(--cyan-dim)';
+          cardSono.style.borderColor = 'var(--cyan)';
+        } else {
+          document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10` : '—';
+          cardSono.style.boxShadow = '';
+          cardSono.style.borderColor = '';
+        }
         document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Inteligente' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Bônus de Recuperação' : '—');
         document.getElementById('scNutri').textContent = sc.nutri; document.getElementById('pNutri').style.width = sc.nutri + '%'; document.getElementById('subNutri').textContent = e.nutri ? `${e.nutri.protein}g prot · ${e.nutri.hydration}L` : '—'; document.getElementById('metaNutri').textContent = e.nutri ? `Qualidade ${e.nutri.quality}/10${e.nutri.noUltraprocessed ? ' · Sem ultraproc. ✓' : ''}` : '—';
       } else {
@@ -3889,7 +3914,25 @@
       document.getElementById('macroFoodCount').textContent = `${log.length} item(s)`;
       document.getElementById('macroFoodList').textContent = log.map(f => `${f.name} (${f.qty}g)`).join(' · ');
     }
-    function updateStreaks(data) { function streak(fn) { let c = 0, d = new Date(); for (let i = 0; i < 365; i++) { const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; if (data[k] && fn(data[k])) c++; else break; d.setDate(d.getDate() - 1); } return c; } document.getElementById('strSono').textContent = streak(e => e.sono && e.sono.hours > 0); document.getElementById('strTreino').textContent = streak(e => e.treino && e.treino.trained); document.getElementById('strNutri').textContent = streak(e => e.nutri && (e.nutri.protein > 0 || e.nutri.hydration > 0)); }
+    function updateStreaks(data) {
+      function streak(fn) {
+        let c = 0, d = new Date();
+        for (let i = 0; i < 365; i++) {
+          const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (data[k] && fn(data[k])) c++;
+          else break;
+          d.setDate(d.getDate() - 1);
+        }
+        return c;
+      }
+      function total(fn) {
+        return Object.values(data).filter(fn).length;
+      }
+      document.getElementById('strSono').textContent = streak(e => e.sono && e.sono.hours > 0);
+      document.getElementById('strTreino').textContent = streak(e => e.treino && e.treino.trained);
+      document.getElementById('strNutri').textContent = streak(e => e.nutri && (e.nutri.protein > 0 || e.nutri.hydration > 0));
+      document.getElementById('strLucid').textContent = total(e => e.sono && e.sono.lucid);
+    }
     function renderHeatmap(data) { const g = document.getElementById('hmGrid'); g.innerHTML = ''; const today = new Date(); for (let i = 29; i >= 0; i--) { const d = new Date(today); d.setDate(today.getDate() - i); const k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; const c = document.createElement('div'); c.className = 'hm-cell'; const e = data[k]; if (e && e.scores) { const sc = e.scores.overall; c.classList.add(sc >= 70 ? 'hm-hi' : sc >= 40 ? 'hm-mid' : 'hm-lo'); c.title = `${k}: ${sc} pts`; } else { c.title = `${k}: sem dados`; } g.appendChild(c); } }
 
     // ── HISTORY ──
@@ -4939,6 +4982,55 @@ Então gere um programa COMPLETO com estas seções em markdown:
       document.getElementById('planModal').classList.add('open');
     }
     function closePlanModal() { document.getElementById('planModal').classList.remove('open'); modalPlanData = null; }
+
+    function showLucidGuide() {
+      const modal = document.getElementById('planModal');
+      const title = document.getElementById('modalTitle');
+      const badge = document.getElementById('modalBadge');
+      const date = document.getElementById('modalDate');
+      const content = document.getElementById('modalContent');
+      const actions = modal.querySelector('.modal-actions');
+
+      badge.innerHTML = '<span class="plan-badge-n" style="background:var(--cyan-dim);color:var(--cyan);border-color:var(--cyan)">Neural Guide</span>';
+      title.textContent = 'Guia de Sonhos Lúcidos';
+      date.textContent = 'Biohacking Mindset';
+
+      content.innerHTML = `
+        <div style="font-family:var(--font-m); font-size:13px; line-height:1.6">
+          <p style="margin-bottom:15px; color:var(--cyan)"><b>O que é?</b> Estar consciente de que você está sonhando enquanto o sonho acontece. Isso permite "acordar" dentro do sonho e até controlá-lo.</p>
+          
+          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--cyan); padding-left:10px">Técnicas Essenciais</h4>
+          <ul style="padding-left:20px; margin-bottom:15px">
+            <li style="margin-bottom:8px"><b>Reality Checks:</b> Durante o dia, pergunte-se: "Isso é um sonho?". Tente atravessar a mão na parede ou contar seus dedos.</li>
+            <li style="margin-bottom:8px"><b>Diário de Sonhos:</b> Escreva seus sonhos IMEDIATAMENTE ao acordar. Isso aumenta a lembrança e a consciência no ambiente onírico.</li>
+            <li style="margin-bottom:8px"><b>MILD (Indução Mnemônica):</b> Ao deitar, repita: "Eu vou saber que estou sonhando". Visualize seu próximo sonho.</li>
+            <li style="margin-bottom:8px"><b>WBTB (Acordar e Voltar):</b> Acorde após 5-6h de sono, fique acordado por 15-30min focado em lucidez, e volte a dormir.</li>
+          </ul>
+
+          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--purple); padding-left:10px">O Impacto no BioTracker</h4>
+          <p style="margin-bottom:15px">Conseguir um sonho lúcido é um sinal de alta qualidade de sono REM e neuroplasticidade. No BioTracker:</p>
+          <ul style="padding-left:20px">
+            <li><b>Bonus de Sono:</b> +10 pontos no score de sono.</li>
+            <li><b>Neuro-Recovery:</b> +5 pontos no score de recuperação.</li>
+          </ul>
+        </div>
+      `;
+
+      // Hide download buttons for this guide
+      document.getElementById('modalDlPDF').style.display = 'none';
+      document.getElementById('modalDlDOC').style.display = 'none';
+
+      modal.classList.add('open');
+
+      // Override close to restore buttons
+      const oldClose = window.closePlanModal;
+      window.closePlanModal = function () {
+        document.getElementById('modalDlPDF').style.display = 'inline-block';
+        document.getElementById('modalDlDOC').style.display = 'inline-block';
+        oldClose();
+        window.closePlanModal = oldClose;
+      };
+    }
     function downloadPDFFromModal() { if (modalPlanData) downloadPDF(null, modalPlanData); }
     function downloadDOCFromModal() { if (modalPlanData) downloadDOC(null, modalPlanData); }
 

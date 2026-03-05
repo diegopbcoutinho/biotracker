@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(findstr /c:\"trendsGrid\" \"C:\\\\Users\\\\diego\\\\OneDrive\\\\Escritorio\\\\Biohacking\\\\biotracker.html\")",
+      "Bash(powershell -Command \"Select-String -Path ''C:\\\\Users\\\\diego\\\\OneDrive\\\\Escritorio\\\\Biohacking\\\\biotracker.html'' -Pattern ''trendsGrid|renderTrends|sparklineSVG|calcTrend|FOODS_DB'' | Select-Object LineNumber, Line\")",
+      "Bash(python3 -:*)",
+      "Bash(py --version)",
+      "Bash(python.exe --version)",
+      "Bash(where py)",
+      "Bash(git add index.html)",
+      "Bash(git commit:*)",
+      "Bash(git push)"
+    ]
+  }
+}
