@@ -3666,7 +3666,29 @@
       };
     }
     function updatePreview() { const e = buildEntry(), sc = scores(e); document.getElementById('prevSono').textContent = sc.sono; document.getElementById('prevTreino').textContent = sc.treino; document.getElementById('prevNutri').textContent = sc.nutri; document.getElementById('prevGeral').textContent = sc.overall; }
-    function saveLog() { const data = getData(), entry = buildEntry(); entry.scores = scores(entry); data[entry.date] = entry; saveData(data); showToast('Registrado ✓'); updateDashboard(); renderHistory(); }
+    function saveLog() {
+      const data = getData(), entry = buildEntry();
+      entry.scores = scores(entry);
+      data[entry.date] = entry;
+      saveData(data);
+      showToast('Registrado ✓');
+      updateDashboard();
+      renderHistory();
+
+      // Auto-reset to today if we just saved a historical date
+      const selected = entry.date;
+      const today = todayKey();
+      if (selected !== today) {
+        setTimeout(() => {
+          const inp = document.getElementById('logDate');
+          if (inp) {
+            inp.value = today;
+            onDateChange();
+            showToast('Voltando para hoje...');
+          }
+        }, 1500);
+      }
+    }
 
     // ── TABS ──
     document.querySelectorAll('.tab-btn').forEach((btn, i) => btn.addEventListener('click', () => switchTab(i)));
