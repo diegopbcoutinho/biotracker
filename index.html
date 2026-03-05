@@ -2973,7 +2973,7 @@
           </div>
           <div class="fg">
             <label class="fl">Sonho Lúcido?</label>
-            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream" class="tgl-lbl">Sonho
+            <div class="tgl-row cs"><label class="tgl cs"><input type="checkbox" id="lucidDream" onchange="syncState('lucidDream','lucidSt','Sim','Nao')"><span class="tgl-track"></span></label><span class="tgl-lbl">Sonho
                 lúcido</span><span class="tgl-state" id="lucidSt">Não</span>
                 <span style="margin-left:auto;font-size:10px;color:var(--cyan);cursor:pointer;text-decoration:underline"
                   onclick="showLucidGuide()">Como fazer?</span>
@@ -3552,40 +3552,40 @@
       training(t, recScore) {
         if (!t) return 0;
         const type = (t.type || '').toLowerCase();
-        const isRecoveryType = ['mobilidade', 'yoga', 'alongamento', 'meditação'].includes(type);
+        const isRecoveryType = ['mobilidade', 'yoga', 'alongamento', 'meditacao'].includes(type);
 
-        // Ensure r is a valid number, fallback to 80 (Good) if not
-        const r = (typeof recScore !== 'number' || isNaN(recScore)) ? 80 : recScore;
+        // Recovery guard with neutral fallback.
+        const r = (typeof recScore !== 'number' || isNaN(recScore)) ? 70 : recScore;
 
-        // Scenario 1: No training registered
+        // Rest day: strategic rest can be good, but should not auto-hit 100.
+        // Smooth curve avoids abrupt jumps when recovery changes.
         if (!t.trained) {
-          if (r < 40) return 100; // Perfect Strategic Rest
-          if (r < 70) return 85;  // Recommended Recovery
-          return 50; // Neutral rest
+          return Math.min(75, Math.max(45, Math.round(78 - (r * 0.3))));
         }
 
-        const intensity = t.intensity || 5;
-        const duration = t.duration || 0;
+        const intensity = Math.max(1, Math.min(10, t.intensity || 5));
+        const duration = Math.max(0, Math.min(180, t.duration || 0));
+        const durationScore = Math.min(duration / 60, 1) * 20;
+        let score = intensity * 8 + durationScore;
 
-        // Scenario 2: Active Recovery
+        // Active recovery and load matching.
         if (isRecoveryType) {
-          if (r < 75) return 100; // Optimal choice for fatigue
-          return 90; // Excellent restorative work
+          if (r < 75) score += 8;
+          if (r >= 85) score -= 8;
+        } else {
+          if (r < 40) {
+            if (intensity >= 8 && duration >= 45) score -= 25;
+            else if (intensity <= 5) score += 8;
+            else score -= 10;
+          } else if (r < 65) {
+            if (intensity >= 9) score -= 15;
+            else if (intensity <= 6) score += 4;
+          } else if (r >= 80 && intensity <= 4 && duration < 25) {
+            score -= 8;
+          }
         }
 
-        // Scenario 3: Regular Training
-        let scoreBase = (intensity * 10 * 0.7) + (Math.min(duration / 90, 1) * 100 * 0.3);
-
-        if (r < 40) {
-          if (intensity >= 7) return Math.min(30, scoreBase * 0.3); // Severe Overtraining Penalty
-          return Math.min(60, scoreBase); // Very light is okay
-        }
-
-        if (r < 70) {
-          if (intensity >= 8) return Math.round(scoreBase * 0.75); // Penalty for pushing hard under fatigue
-        }
-
-        return Math.min(100, Math.max(0, Math.round(scoreBase)));
+        return Math.min(100, Math.max(35, Math.round(score)));
       },
       nutrition(n) {
         if (!n) return 0;
@@ -3600,9 +3600,12 @@
         const rs = (rec && typeof rec.score === 'number') ? rec.score : 80;
         const s = this.sleep(e.sono), t = this.training(e.treino, rs), n = this.nutrition(e.nutri);
         const w = this.WEIGHTS[DataLayer.getSetting('bt_goal', 'performance')] || this.WEIGHTS.performance;
+        const sono = Number.isFinite(s) ? s : 0;
+        const treino = Number.isFinite(t) ? t : 0;
+        const nutri = Number.isFinite(n) ? n : 0;
         return {
-          sono: s || 0, treino: t || (e.treino && !e.treino.trained ? 50 : 0), nutri: n || 0,
-          overall: Math.min(100, Math.round((s || 0) * w.sleep + (t || 0) * w.training + (n || 0) * w.nutrition))
+          sono, treino, nutri,
+          overall: Math.min(100, Math.round(sono * w.sleep + treino * w.training + nutri * w.nutrition))
         };
       },
 
@@ -3834,7 +3837,7 @@
         document.getElementById('ovFill').style.width = sc.overall + '%';
         document.getElementById('ovFill').style.background = sc.overall >= 70 ? 'linear-gradient(90deg,#16a34a,#22c55e)' : sc.overall >= 40 ? 'linear-gradient(90deg,#a16207,#ca8a04)' : 'linear-gradient(90deg,#b91c1c,#ef4444)';
 
-        const isRestReward = !e.treino?.trained && sc.treino >= 80;
+        const isRestReward = !e.treino?.trained && sc.treino >= 68;
         document.getElementById('ovDesc').textContent = isRestReward ? `Recuperação Estratégica 🔥` : `Desempenho ${sc.overall >= 70 ? 'Excelente 🔥' : sc.overall >= 40 ? 'Regular ⚡' : 'Fraco — force mais!'}`;
 
         document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados';
@@ -3848,7 +3851,7 @@
           cardSono.style.boxShadow = '';
           cardSono.style.borderColor = '';
         }
-        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Inteligente' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Bônus de Recuperação' : '—');
+        document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Estrategico' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Recuperacao priorizada' : '—');
         document.getElementById('scNutri').textContent = sc.nutri; document.getElementById('pNutri').style.width = sc.nutri + '%'; document.getElementById('subNutri').textContent = e.nutri ? `${e.nutri.protein}g prot · ${e.nutri.hydration}L` : '—'; document.getElementById('metaNutri').textContent = e.nutri ? `Qualidade ${e.nutri.quality}/10${e.nutri.noUltraprocessed ? ' · Sem ultraproc. ✓' : ''}` : '—';
       } else {
         document.getElementById('ovNum').textContent = '—'; document.getElementById('ovFill').style.width = '0%'; document.getElementById('ovDesc').textContent = 'Nenhum dado registrado hoje';
