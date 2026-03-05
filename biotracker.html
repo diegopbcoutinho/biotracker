@@ -304,6 +304,60 @@
       overflow: hidden;
     }
 
+    /* DATE PICKER UX */
+    .date-picker-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+    }
+
+    .date-chip {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      border-radius: 100px;
+      color: var(--cyan);
+      font-family: var(--font-m);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    }
+
+    .date-picker-wrap:hover .date-chip {
+      border-color: var(--cyan);
+      background: var(--cyan-dim);
+      box-shadow: 0 0 15px var(--cyan-dim);
+      transform: translateY(-1px);
+    }
+
+    .date-chip i {
+      font-style: normal;
+      font-size: 14px;
+    }
+
+    .date-chip-label {
+      color: var(--text);
+      opacity: 0.9;
+    }
+
+    #logDate {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      z-index: 2;
+    }
+
     .card::before {
       content: '';
       position: absolute;
@@ -2868,13 +2922,22 @@
 
     <!-- ══════ TAB 1: REGISTRAR ══════ -->
     <div class="tab-panel" id="tp1">
-      <!-- DATE SELECTOR -->
-      <div class="card" style="margin-bottom:16px; border-color:var(--cyan-dim)">
-        <div style="display:flex;align-items:center;gap:15px">
-          <div class="form-sec" style="margin-bottom:0; flex-shrink:0">📅 Data do Registro</div>
-          <input type="date" class="fi" id="logDate" onchange="onDateChange()" style="max-width:200px">
-          <div style="font-family:var(--font-m);font-size:11px;color:var(--text-muted);margin-left:auto">
-            Selecione o dia para registrar ou editar dados.
+      <!-- DATE SELECTOR UX -->
+      <div class="card"
+        style="margin-bottom:16px; border-color:var(--cyan-dim); background:radial-gradient(circle at top right, var(--cyan-dim), transparent)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
+          <div>
+            <div class="form-sec" style="margin-bottom:4px">// Registro Diário</div>
+            <div style="font-family:var(--font-m);font-size:10px;color:var(--text-muted);letter-spacing:0.05em">
+              Selecione o dia para sincronizar seu Biohacking Health OS</div>
+          </div>
+
+          <div class="date-picker-wrap" title="Clique para mudar a data">
+            <div class="date-chip" id="dateChip">
+              <i>📅</i>
+              <span class="date-chip-label" id="dateChipLabel">Carregando...</span>
+            </div>
+            <input type="date" id="logDate" onchange="onDateChange()">
           </div>
         </div>
       </div>
@@ -3361,8 +3424,28 @@
     function todayKey() { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
     function getSelectedDate() { return document.getElementById('logDate').value || todayKey(); }
 
+    function formatDateDisplay(dateStr) {
+      if (!dateStr) return '—';
+      const [y, m, d] = dateStr.split('-');
+      const date = new Date(y, m - 1, d);
+      const now = new Date();
+      const today = todayKey();
+
+      if (dateStr === today) return 'Hoje, ' + date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const yKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+      if (dateStr === yKey) return 'Ontem, ' + date.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' });
+
+      return date.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short' });
+    }
+
     function onDateChange() {
       const date = getSelectedDate();
+      const label = document.getElementById('dateChipLabel');
+      if (label) label.textContent = formatDateDisplay(date);
+
       const data = getData();
       const entry = data[date];
 
