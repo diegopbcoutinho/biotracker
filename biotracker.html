@@ -2868,6 +2868,17 @@
 
     <!-- ══════ TAB 1: REGISTRAR ══════ -->
     <div class="tab-panel" id="tp1">
+      <!-- DATE SELECTOR -->
+      <div class="card" style="margin-bottom:16px; border-color:var(--cyan-dim)">
+        <div style="display:flex;align-items:center;gap:15px">
+          <div class="form-sec" style="margin-bottom:0; flex-shrink:0">📅 Data do Registro</div>
+          <input type="date" class="fi" id="logDate" onchange="onDateChange()" style="max-width:200px">
+          <div style="font-family:var(--font-m);font-size:11px;color:var(--text-muted);margin-left:auto">
+            Selecione o dia para registrar ou editar dados.
+          </div>
+        </div>
+      </div>
+
       <div class="g2">
         <!-- SONO -->
         <div class="card cs">
@@ -3348,6 +3359,71 @@
       AuthLayer.getSession().then(s => { if (s) DataLayer.syncEntries(s.user.id).catch(() => { }); });
     }
     function todayKey() { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`; }
+    function getSelectedDate() { return document.getElementById('logDate').value || todayKey(); }
+
+    function onDateChange() {
+      const date = getSelectedDate();
+      const data = getData();
+      const entry = data[date];
+
+      if (entry) {
+        fillForm(entry);
+        showToast('Dados de ' + date + ' carregados');
+      } else {
+        resetFormFlags();
+        showToast('Novo registro para ' + date);
+      }
+      updatePreview();
+    }
+
+    function resetFormFlags() {
+      // Basic reset of input flags/states without clearing everything
+      document.getElementById('trainedToday').checked = false;
+      toggleWorkout();
+      document.getElementById('fastingToday').checked = false;
+      toggleFasting();
+      // Keep sleep times from previous day as baseline or clear? Let's clear for safety.
+      // document.getElementById('bedtime').value = '';
+      // document.getElementById('waketime').value = '';
+      currentFoodLog = [];
+      renderFoodLog();
+    }
+
+    function fillForm(e) {
+      if (!e) return;
+      if (e.sono) {
+        document.getElementById('bedtime').value = e.sono.bedtime || '';
+        document.getElementById('waketime').value = e.sono.waketime || '';
+        document.getElementById('sleepQuality').value = e.sono.quality || 5;
+        document.getElementById('lucidDream').checked = !!e.sono.lucid;
+        syncSlider('sleepQuality', 'sqVal', 'sqDisp');
+        syncState('lucidDream', 'lucidSt', 'Sim', 'Não');
+      }
+      if (e.treino) {
+        document.getElementById('trainedToday').checked = !!e.treino.trained;
+        toggleWorkout();
+        document.getElementById('wkDuration').value = e.treino.duration || '';
+        document.getElementById('wkIntensity').value = e.treino.intensity || 5;
+        document.getElementById('wkNotes').value = e.treino.notes || '';
+        syncSlider('wkIntensity', 'wiVal', 'wiDisp');
+        // Find and select type button
+        document.querySelectorAll('.type-btn').forEach(btn => {
+          btn.classList.toggle('sel', btn.textContent === e.treino.type);
+        });
+      }
+      if (e.nutri) {
+        document.getElementById('fastingToday').checked = !!e.nutri.fasted;
+        toggleFasting();
+        if (e.nutri.fasted) document.getElementById('fastBreak').value = e.nutri.fastBreakTime || '';
+        document.getElementById('hydration').value = e.nutri.hydration || '';
+        document.getElementById('nutriQuality').value = e.nutri.quality || 5;
+        document.getElementById('noUltra').checked = !!e.nutri.noUltraprocessed;
+        syncSlider('nutriQuality', 'nqVal', 'nqDisp');
+        syncState('noUltra', 'ultraSt', 'Sim ✓', 'Não');
+        currentFoodLog = e.nutri.foodLog ? [...e.nutri.foodLog] : [];
+        renderFoodLog();
+      }
+    }
 
 
     // ══════════════════════════════════════════════════
@@ -3479,7 +3555,7 @@
       const at = document.querySelector('.type-btn.sel');
       const macros = calcFoodLogMacros();
       return {
-        date: todayKey(),
+        date: getSelectedDate(),
         sono: {
           bedtime: document.getElementById('bedtime').value,
           waketime: document.getElementById('waketime').value,
@@ -3513,9 +3589,22 @@
     function switchTab(i) {
       document.querySelectorAll('.tab-btn').forEach((b, j) => b.classList.toggle('active', i === j));
       document.querySelectorAll('.tab-panel').forEach((p, j) => p.classList.toggle('active', i === j));
-      if (i === 1) loadTodayFoodLog();
+      if (i === 1) {
+        initDateInput();
+        loadTodayFoodLog();
+      }
       if (i === 3 && !chats.nutri.started) initChat('nutri');
       if (i === 4 && !chats.trainer.started) initChat('trainer');
+    }
+
+    function initDateInput() {
+      const inp = document.getElementById('logDate');
+      if (inp && !inp.value) {
+        const today = todayKey();
+        inp.value = today;
+        inp.max = today;
+        onDateChange(); // Load data for today if exists
+      }
     }
 
     // ── DASHBOARD ──
