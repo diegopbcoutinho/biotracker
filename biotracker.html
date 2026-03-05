@@ -3536,145 +3536,181 @@
         muscle_gain: { sleep: 0.30, training: 0.40, nutrition: 0.30 }
       },
       LABELS: {
-        performance: { label: '⚡ Performance', desc: 'Treino 45% · Nutrição 30% · Sono 25%' },
-        longevity: { label: '🌿 Longevidade', desc: 'Sono 45% · Nutrição 35% · Treino 20%' },
-        fat_loss: { label: '🔥 Fat Loss', desc: 'Nutrição 40% · Treino 35% · Sono 25%' },
-        muscle_gain: { label: '💪 Muscle Gain', desc: 'Treino 40% · Sono 30% · Nutrição 30%' }
+        performance: { label: 'Performance', desc: 'Treino 45% � Nutricao 30% � Sono 25%' },
+        longevity: { label: 'Longevidade', desc: 'Sono 45% � Nutricao 35% � Treino 20%' },
+        fat_loss: { label: 'Fat Loss', desc: 'Nutricao 40% � Treino 35% � Sono 25%' },
+        muscle_gain: { label: 'Muscle Gain', desc: 'Treino 40% � Sono 30% � Nutricao 30%' }
+      },
+
+      clamp01(v) { return Math.max(0, Math.min(1, Number.isFinite(v) ? v : 0)); },
+      weightedMean(parts) {
+        let num = 0, den = 0;
+        parts.forEach(p => { num += (p.value || 0) * (p.weight || 0); den += (p.weight || 0); });
+        return den > 0 ? num / den : 0;
+      },
+      stdDev(arr) {
+        if (!arr || !arr.length) return 0;
+        const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+        const variance = arr.reduce((acc, x) => acc + ((x - mean) ** 2), 0) / arr.length;
+        return Math.sqrt(variance);
+      },
+      circadian(data, today) {
+        const keys = Object.keys(data).sort();
+        const idx = keys.indexOf(today);
+        if (idx < 0) return 0.5;
+        const lookback = keys.slice(Math.max(0, idx - 6), idx + 1);
+        const bedtimes = lookback
+          .map(k => data[k]?.sono?.bedtime)
+          .filter(Boolean)
+          .map(bt => {
+            const [h, m] = bt.split(':').map(Number);
+            return (h * 60) + m;
+          });
+        if (bedtimes.length < 3) return 0.5;
+        const stdDevMin = this.stdDev(bedtimes);
+        return this.clamp01(1 - (stdDevMin / 120));
+      },
+      getPreviousTrainingLoad(data, today) {
+        const keys = Object.keys(data).sort();
+        const idx = keys.indexOf(today);
+        if (idx <= 0) return 0;
+        const p = data[keys[idx - 1]];
+        if (!p?.treino?.trained) return 0;
+        const intensity = Math.max(1, Math.min(10, p.treino.intensity || 0));
+        const duration = Math.max(0, Math.min(180, p.treino.duration || 0));
+        return intensity * duration;
+      },
+      getWeeklyLoad(data, today) {
+        const keys = Object.keys(data).sort();
+        const idx = keys.indexOf(today);
+        if (idx < 0) return 0;
+        let total = 0;
+        for (let i = Math.max(0, idx - 6); i <= idx; i++) {
+          const en = data[keys[i]];
+          if (!en?.treino?.trained) continue;
+          const intensity = Math.max(1, Math.min(10, en.treino.intensity || 0));
+          const duration = Math.max(0, Math.min(180, en.treino.duration || 0));
+          total += intensity * duration;
+        }
+        return total;
+      },
+      getVarietyScore(data, today) {
+        const keys = Object.keys(data).sort();
+        const idx = keys.indexOf(today);
+        if (idx < 0) return 0.5;
+        const types = new Set();
+        for (let i = Math.max(0, idx - 6); i <= idx; i++) {
+          const en = data[keys[i]];
+          if (en?.treino?.trained && en?.treino?.type) {
+            types.add(String(en.treino.type).toLowerCase());
+          }
+        }
+        return this.clamp01(types.size / 4);
       },
 
       sleep(s) {
         if (!s || !s.hours) return 0;
-        const h = s.hours, hs = h <= 8 ? (h / 8) * 100 : Math.max(0, (1 - (h - 8) / 2) * 100);
-        let score = Math.min(100, Math.round((hs + (s.quality || 5) * 10) / 2));
-        if (s.lucid) score = Math.min(100, score + 10);
-        return score;
+        const hours = Math.max(0, Math.min(14, s.hours || 0));
+        const durationScore = Math.exp(-(((hours - 7.75) ** 2) / 4));
+        const qualityScore = this.clamp01((s.quality || 0) / 10);
+        const circadianScore = this.clamp01(s.circadianScore ?? 0.5);
+        const norm = this.weightedMean([
+          { value: durationScore, weight: 0.45 },
+          { value: qualityScore, weight: 0.35 },
+          { value: circadianScore, weight: 0.20 }
+        ]);
+        return Math.round(this.clamp01(norm) * 100);
       },
-      training(t, recScore) {
+
+      training(t, recScore, ctx = {}) {
         if (!t) return 0;
-        const type = (t.type || '').toLowerCase();
-        const isRecoveryType = ['mobilidade', 'yoga', 'alongamento', 'meditacao'].includes(type);
+        const recoveryNorm = this.clamp01(((typeof recScore === 'number' ? recScore : 70) / 100));
+        const weeklyLoad = Math.max(0, ctx.weeklyLoad || 0);
+        const varietyScore = this.clamp01(ctx.varietyScore ?? 0.5);
 
-        // Recovery guard with neutral fallback.
-        const r = (typeof recScore !== 'number' || isNaN(recScore)) ? 70 : recScore;
-
-        // Rest day: strategic rest can be good, but should not auto-hit 100.
-        // Smooth curve avoids abrupt jumps when recovery changes.
         if (!t.trained) {
-          return Math.min(75, Math.max(45, Math.round(78 - (r * 0.3))));
+          return Math.round((0.25 + (0.35 * recoveryNorm)) * 100);
         }
 
-        const intensity = Math.max(1, Math.min(10, t.intensity || 5));
-        const duration = Math.max(0, Math.min(180, t.duration || 0));
-        const durationScore = Math.min(duration / 60, 1) * 20;
-        let score = intensity * 8 + durationScore;
+        const intensityNorm = this.clamp01((t.intensity || 0) / 10);
+        const durationNorm = this.clamp01((t.duration || 0) / 120);
+        const trainingLoad = (intensityNorm * 10) * (durationNorm * 120);
+        const loadNorm = this.clamp01(trainingLoad / 600);
+        const stimulusScore = loadNorm * recoveryNorm;
+        const fatiguePenalty = this.clamp01(weeklyLoad / 3500);
 
-        // Active recovery and load matching.
-        if (isRecoveryType) {
-          if (r < 75) score += 8;
-          if (r >= 85) score -= 8;
-        } else {
-          if (r < 40) {
-            if (intensity >= 8 && duration >= 45) score -= 25;
-            else if (intensity <= 5) score += 8;
-            else score -= 10;
-          } else if (r < 65) {
-            if (intensity >= 9) score -= 15;
-            else if (intensity <= 6) score += 4;
-          } else if (r >= 80 && intensity <= 4 && duration < 25) {
-            score -= 8;
-          }
-        }
+        const norm = this.weightedMean([
+          { value: stimulusScore, weight: 0.7 },
+          { value: recoveryNorm, weight: 0.2 },
+          { value: varietyScore, weight: 0.1 }
+        ]) * (1 - (0.25 * fatiguePenalty));
 
-        return Math.min(100, Math.max(35, Math.round(score)));
+        return Math.round(this.clamp01(norm) * 100);
       },
+
       nutrition(n) {
         if (!n) return 0;
-        return Math.min(100, Math.round(
-          (Math.min((n.protein || 0) / 150 * 100, 100) + Math.min((n.hydration || 0) / 3 * 100, 100) +
-            (n.quality || 5) * 10 + (n.noUltraprocessed ? 100 : 0)) / 4));
+        const proteinScore = this.clamp01((n.protein || 0) / 140);
+        const hydrationScore = this.clamp01((n.hydration || 0) / 2.5);
+        const qualityScore = this.clamp01((n.quality || 0) / 10);
+        const ultraScore = n.noUltraprocessed ? 1 : 0.5;
+        const norm = this.weightedMean([
+          { value: proteinScore, weight: 0.35 },
+          { value: hydrationScore, weight: 0.25 },
+          { value: qualityScore, weight: 0.30 },
+          { value: ultraScore, weight: 0.10 }
+        ]);
+        return Math.round(this.clamp01(norm) * 100);
       },
 
       calc(e, data = null) {
         const d = data || getData();
-        const rec = this.recovery(d, e.date, e) || { score: 80 };
-        const rs = (rec && typeof rec.score === 'number') ? rec.score : 80;
-        const s = this.sleep(e.sono), t = this.training(e.treino, rs), n = this.nutrition(e.nutri);
+        const circadianScore = this.circadian(d, e.date);
+        const sleepScore = this.sleep({ ...(e.sono || {}), circadianScore });
+        const nutritionScore = this.nutrition(e.nutri);
+        const rec = this.recovery(d, e.date, e, { sleepScore, nutritionScore, circadianScore }) || { score: 70 };
+        const recScore = (rec && typeof rec.score === 'number') ? rec.score : 70;
+        const trainingScore = this.training(e.treino, recScore, {
+          weeklyLoad: this.getWeeklyLoad(d, e.date),
+          varietyScore: this.getVarietyScore(d, e.date)
+        });
+
         const w = this.WEIGHTS[DataLayer.getSetting('bt_goal', 'performance')] || this.WEIGHTS.performance;
-        const sono = Number.isFinite(s) ? s : 0;
-        const treino = Number.isFinite(t) ? t : 0;
-        const nutri = Number.isFinite(n) ? n : 0;
+        const sono = Number.isFinite(sleepScore) ? sleepScore : 0;
+        const treino = Number.isFinite(trainingScore) ? trainingScore : 0;
+        const nutri = Number.isFinite(nutritionScore) ? nutritionScore : 0;
+
+        const weighted = (sono * w.sleep) + (treino * w.training) + (nutri * w.nutrition);
+        const mean = (sono + treino + nutri) / 3;
+        const variance = (((sono - mean) ** 2) + ((treino - mean) ** 2) + ((nutri - mean) ** 2)) / 3;
+        const penalty = (variance / 10000) * 100 * 0.1;
+
         return {
-          sono, treino, nutri,
-          overall: Math.min(100, Math.round(sono * w.sleep + treino * w.training + nutri * w.nutrition))
+          sono,
+          treino,
+          nutri,
+          overall: Math.max(0, Math.min(100, Math.round(weighted - penalty)))
         };
       },
 
-      recovery(data, today, currentEntry = null) {
-        const keys = Object.keys(data).sort(), idx = keys.indexOf(today);
+      recovery(data, today, currentEntry = null, cached = null) {
         const e = currentEntry || data[today];
         if (!e) return {
-          score: null, status: '—', color: 'var(--text-muted)',
-          detail: 'Registre o sono de hoje para calcular a recuperação.'
+          score: null, status: '-', color: 'var(--text-muted)',
+          detail: 'Registre o sono de hoje para calcular a recuperacao.'
         };
 
-        const sleepH = e.sono?.hours || 0, sleepQ = e.sono?.quality || 5;
-        let prevIntensity = 0;
-        let cumulativeLoad = 0;
-        let circadianBonus = 0;
-        let repairBonus = 0;
+        const circadianScore = this.clamp01(cached?.circadianScore ?? this.circadian(data, today));
+        const sleepScore = this.clamp01((cached?.sleepScore ?? this.sleep({ ...(e.sono || {}), circadianScore })) / 100);
+        const nutritionScore = this.clamp01((cached?.nutritionScore ?? this.nutrition(e.nutri)) / 100);
 
-        if (idx > 0) {
-          const p = data[keys[idx - 1]];
-          prevIntensity = p?.treino?.trained ? (p.treino.intensity || 5) : 0;
+        const previousTrainingLoad = this.getPreviousTrainingLoad(data, today);
+        const weeklyLoad = this.getWeeklyLoad(data, today);
 
-          // Nutritional Repair Bonus from yesterday
-          if (p.nutri && p.nutri.protein >= 120 && p.nutri.hydration >= 3) repairBonus = 5;
-        }
-
-        // Multi-day Fatigue (Last 7 days load)
-        let entriesAnalyzed = 0;
-        for (let i = idx - 1; i >= Math.max(0, idx - 7); i--) {
-          const en = data[keys[i]];
-          if (en?.treino?.trained) {
-            cumulativeLoad += (en.treino.intensity || 0) * (en.treino.duration || 0);
-          }
-          entriesAnalyzed++;
-        }
-
-        // Circadian Consistency (Last 3 days)
-        if (idx >= 3) {
-          const last3 = keys.slice(idx - 3, idx).map(k => data[k]);
-          const bedtimes = last3.map(en => en.sono?.bedtime).filter(Boolean);
-          if (bedtimes.length === 3) {
-            const variances = bedtimes.map(bt => {
-              const [h, m] = bt.split(':').map(Number);
-              return h * 60 + m;
-            });
-            const avg = variances.reduce((a, b) => a + b) / 3;
-            const isConsistent = variances.every(v => Math.abs(v - avg) < 45); // 45min variance
-            if (isConsistent) circadianBonus = 5;
-          }
-        }
-
-        let consecutiveHigh = 0;
-        for (let i = idx - 1; i >= Math.max(0, idx - 4); i--) {
-          const en = data[keys[i]];
-          if (en?.treino?.trained && (en.treino.intensity || 0) >= 7) consecutiveHigh++; else break;
-        }
-
-        let score = 50;
-        if (sleepH >= 8) score += 25;
-        else if (sleepH >= 7) score += 15;
-        else if (sleepH >= 6) score += 5;
-        else if (sleepH > 0) score -= 15;
-
-        score += (sleepQ - 5) * 4 - prevIntensity * 2 - consecutiveHigh * 8;
-
-        // CNS Load adjustment (Simplified)
-        if (cumulativeLoad > 2000) score -= 10; // High frequency intensive load
-
-        if (e.sono?.lucid) score += 5; // Neuro-Recovery Bonus
-        score = Math.min(100, Math.max(0, Math.round(score)));
+        const stress = (0.6 * previousTrainingLoad) + (0.4 * weeklyLoad);
+        const repair = (0.5 * sleepScore) + (0.3 * nutritionScore) + (0.2 * circadianScore);
+        const recoveryNorm = this.clamp01(repair / ((stress / 1000) + 0.5));
+        const score = Math.round(recoveryNorm * 100);
 
         const lon = DataLayer.getSetting('bt_goal', 'performance') === 'longevity';
         const tHi = lon ? 75 : 70, tMid = lon ? 50 : 40;
@@ -3682,18 +3718,17 @@
         const status = score >= tHi ? 'Recuperado' : score >= tMid ? 'Fadiga Moderada' : 'Overreached';
 
         const parts = [
-          sleepH > 0 ? `Sono ${sleepH}h` : 'Sem sono',
-          circadianBonus > 0 ? 'Ritmo Circadiano ✓' : '',
-          repairBonus > 0 ? 'Reparo Nutricional ✓' : '',
-          e.sono?.lucid ? 'Neuro-Recuperação (Lúcido) ✓' : '',
-          cumulativeLoad > 2000 ? 'Carga SNC Alta ⚠' : ''
-        ].filter(Boolean);
+          `Stress ${stress.toFixed(0)}`,
+          `Repair ${(repair * 100).toFixed(0)}%`,
+          `Circadiano ${(circadianScore * 100).toFixed(0)}%`,
+          weeklyLoad > 3500 ? 'Carga semanal alta' : 'Carga semanal controlada'
+        ];
 
-        return { score, status, color, detail: parts.join(' · ') };
+        return { score, status, color, detail: parts.join(' � ') };
       }
     };
 
-    // ── Backward-compatible globals ──
+    // Backward-compatible globals
     const GOAL_WEIGHTS = Scoring.WEIGHTS;
     const GOAL_LABELS = Scoring.LABELS;
     function sonoScore(s) { return Scoring.sleep(s); }
@@ -3777,7 +3812,19 @@
         if (document.getElementById('prevTreino')) document.getElementById('prevTreino').textContent = sc.treino;
         if (document.getElementById('prevNutri')) document.getElementById('prevNutri').textContent = sc.nutri;
         if (document.getElementById('prevGeral')) document.getElementById('prevGeral').textContent = sc.overall;
+        applyLucidSleepAura(!!document.getElementById('lucidDream')?.checked);
       } catch (err) { console.error('Preview Error:', err); }
+    }
+    function applyLucidSleepAura(isLucid) {
+      const cardSono = document.getElementById('scSono')?.closest('.card');
+      if (!cardSono) return;
+      if (isLucid) {
+        cardSono.style.borderColor = 'var(--purple)';
+        cardSono.style.boxShadow = '0 0 0 1px var(--purple), 0 0 0 6px rgba(124,58,237,.12), 0 0 22px rgba(124,58,237,.24)';
+      } else {
+        cardSono.style.boxShadow = '';
+        cardSono.style.borderColor = '';
+      }
     }
     function saveLog() {
       const data = getData(), entry = buildEntry();
@@ -3843,19 +3890,18 @@
         document.getElementById('scSono').textContent = sc.sono; document.getElementById('pSono').style.width = sc.sono + '%'; document.getElementById('subSono').textContent = e.sono && e.sono.hours ? `${e.sono.hours}h de sono` : 'Sem dados';
         const cardSono = document.getElementById('scSono').closest('.card');
         if (e.sono?.lucid) {
-          document.getElementById('metaSono').innerHTML = `Qualidade ${e.sono.quality}/10 · <span style="color:var(--cyan);font-weight:700">Lúcido ✓</span>`;
-          cardSono.style.boxShadow = '0 0 20px var(--cyan-dim)';
-          cardSono.style.borderColor = 'var(--cyan)';
+          document.getElementById('metaSono').innerHTML = `Qualidade ${e.sono.quality}/10 � <span style="color:var(--purple);font-weight:700">Lucido ativo</span>`;
+          applyLucidSleepAura(true);
         } else {
-          document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10` : '—';
-          cardSono.style.boxShadow = '';
-          cardSono.style.borderColor = '';
+          document.getElementById('metaSono').textContent = e.sono ? `Qualidade ${e.sono.quality}/10` : '-';
+          applyLucidSleepAura(false);
         }
         document.getElementById('scTreino').textContent = sc.treino; document.getElementById('pTreino').style.width = sc.treino + '%'; document.getElementById('subTreino').textContent = e.treino && e.treino.trained ? `${e.treino.type || '?'} · ${e.treino.duration}min` : (isRestReward ? 'Descanso Estrategico' : 'Sem treino'); document.getElementById('metaTreino').textContent = e.treino && e.treino.trained ? `Intensidade ${e.treino.intensity}/10` : (isRestReward ? 'Recuperacao priorizada' : '—');
         document.getElementById('scNutri').textContent = sc.nutri; document.getElementById('pNutri').style.width = sc.nutri + '%'; document.getElementById('subNutri').textContent = e.nutri ? `${e.nutri.protein}g prot · ${e.nutri.hydration}L` : '—'; document.getElementById('metaNutri').textContent = e.nutri ? `Qualidade ${e.nutri.quality}/10${e.nutri.noUltraprocessed ? ' · Sem ultraproc. ✓' : ''}` : '—';
       } else {
         document.getElementById('ovNum').textContent = '—'; document.getElementById('ovFill').style.width = '0%'; document.getElementById('ovDesc').textContent = 'Nenhum dado registrado hoje';
         ['Sono', 'Treino', 'Nutri'].forEach(k => { document.getElementById('sc' + k).textContent = '—'; document.getElementById('p' + k).style.width = '0%'; document.getElementById('sub' + k).textContent = 'Sem registro'; document.getElementById('meta' + k).textContent = '—'; });
+        applyLucidSleepAura(!!document.getElementById('lucidDream')?.checked);
       }
 
       // Recovery card
@@ -4999,23 +5045,34 @@ Então gere um programa COMPLETO com estas seções em markdown:
       date.textContent = 'Biohacking Mindset';
 
       content.innerHTML = `
-        <div style="font-family:var(--font-m); font-size:13px; line-height:1.6">
-          <p style="margin-bottom:15px; color:var(--cyan)"><b>O que é?</b> Estar consciente de que você está sonhando enquanto o sonho acontece. Isso permite "acordar" dentro do sonho e até controlá-lo.</p>
-          
-          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--cyan); padding-left:10px">Técnicas Essenciais</h4>
-          <ul style="padding-left:20px; margin-bottom:15px">
-            <li style="margin-bottom:8px"><b>Reality Checks:</b> Durante o dia, pergunte-se: "Isso é um sonho?". Tente atravessar a mão na parede ou contar seus dedos.</li>
-            <li style="margin-bottom:8px"><b>Diário de Sonhos:</b> Escreva seus sonhos IMEDIATAMENTE ao acordar. Isso aumenta a lembrança e a consciência no ambiente onírico.</li>
-            <li style="margin-bottom:8px"><b>MILD (Indução Mnemônica):</b> Ao deitar, repita: "Eu vou saber que estou sonhando". Visualize seu próximo sonho.</li>
-            <li style="margin-bottom:8px"><b>WBTB (Acordar e Voltar):</b> Acorde após 5-6h de sono, fique acordado por 15-30min focado em lucidez, e volte a dormir.</li>
+        <div style="font-family:var(--font-m); font-size:13px; line-height:1.65">
+          <p style="margin-bottom:12px; color:var(--cyan)"><b>Objetivo:</b> aumentar a chance de lucidez sem quebrar a qualidade do sono.</p>
+
+          <h4 style="color:var(--text); margin:16px 0 8px; border-left:3px solid var(--cyan); padding-left:10px">Protocolo de 7 dias (pr�tico)</h4>
+          <ol style="padding-left:20px; margin-bottom:14px">
+            <li style="margin-bottom:8px"><b>Ao acordar (2 min):</b> anote 3-5 linhas do sonho. Nomeie um "sinal de sonho" recorrente.</li>
+            <li style="margin-bottom:8px"><b>Durante o dia (5-8x):</b> fa�a reality check + pergunta: "Como cheguei aqui?"</li>
+            <li style="margin-bottom:8px"><b>Antes de dormir (3 min):</b> repita inten��o MILD: "quando eu sonhar, vou perceber que estou sonhando".</li>
+            <li style="margin-bottom:8px"><b>2-3 noites/semana:</b> WBTB leve: acorde ap�s ~5h30 de sono, fique 10-20 min acordado e volte com foco na inten��o.</li>
+          </ol>
+
+          <h4 style="color:var(--text); margin:16px 0 8px; border-left:3px solid var(--purple); padding-left:10px">Checklist dentro do sonho</h4>
+          <ul style="padding-left:20px; margin-bottom:14px">
+            <li style="margin-bottom:8px"><b>1) Estabilize:</b> esfregue as m�os e observe detalhes visuais por 5s.</li>
+            <li style="margin-bottom:8px"><b>2) Aterre:</b> respira��o nasal lenta (3 ciclos) para evitar acordar cedo.</li>
+            <li style="margin-bottom:8px"><b>3) Miss�o curta:</b> escolha uma a��o simples (ex.: olhar rel�gio, mudar cen�rio) antes de tentar algo complexo.</li>
           </ul>
 
-          <h4 style="color:var(--text); margin:20px 0 10px; border-left:3px solid var(--purple); padding-left:10px">O Impacto no BioTracker</h4>
-          <p style="margin-bottom:15px">Conseguir um sonho lúcido é um sinal de alta qualidade de sono REM e neuroplasticidade. No BioTracker:</p>
-          <ul style="padding-left:20px">
-            <li><b>Bonus de Sono:</b> +10 pontos no score de sono.</li>
-            <li><b>Neuro-Recovery:</b> +5 pontos no score de recuperação.</li>
+          <h4 style="color:var(--text); margin:16px 0 8px; border-left:3px solid var(--orange); padding-left:10px">Erros comuns e ajuste</h4>
+          <ul style="padding-left:20px; margin-bottom:14px">
+            <li style="margin-bottom:8px"><b>Muito desperto no WBTB:</b> reduza para 10-12 min acordado.</li>
+            <li style="margin-bottom:8px"><b>Lucidez curta:</b> fa�a estabiliza��o imediatamente ao perceber o sonho.</li>
+            <li style="margin-bottom:8px"><b>Sem progresso por 7 dias:</b> aumente frequ�ncia de reality checks e melhore consist�ncia de hor�rio de sono.</li>
           </ul>
+
+          <h4 style="color:var(--text); margin:16px 0 8px; border-left:3px solid var(--cyan); padding-left:10px">No BioTracker</h4>
+          <p style="margin-bottom:6px">Ao marcar <b>Sonho L�cido</b>, o card de sono ativa um <b>hollow roxo</b> para destacar evento neural no dia.</p>
+          <p style="margin-bottom:0">Use esse marcador em conjunto com qualidade do sono e regularidade circadiana para ver tend�ncia real de recupera��o.</p>
         </div>
       `;
 
